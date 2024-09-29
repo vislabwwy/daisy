@@ -7,6 +7,7 @@ import os
 
 import daisy
 from batch_task import BatchTask
+from funlib.persistence.arrays import Array, open_ds, prepare_ds # vislabwwy: daisy.Array/open_ds/prepare_ds have been deprecated
 
 import logging
 
@@ -18,16 +19,19 @@ def smooth(block, dataset, output, sigma=5):
     logger.debug("Block: %s" % block)
 
     # read data in block.read_roi
-    daisy_array = dataset[block.read_roi]
-    data = daisy_array.to_ndarray()
+    data = dataset.to_ndarray(block.read_roi) #vislabwwy
+    # daisy_array = dataset[block.read_roi] 
+    # data = daisy_array.to_ndarray()
     logger.debug("Got data of shape %s" % str(data.shape))
 
     # apply gaussian filter
     r = scipy.ndimage.gaussian_filter(data, sigma=sigma, mode="constant")
 
     # write result to output dataset in block.write_roi
-    to_write = daisy.Array(data=r, roi=block.read_roi, voxel_size=dataset.voxel_size)
-    output[block.write_roi] = to_write[block.write_roi]
+    to_write = Array(data=r) #vislabwwy
+    # to_write = daisy.Array(data=r, roi=block.read_roi, voxel_size=dataset.voxel_size)
+    output[block.write_roi] = to_write[block.write_roi.shape] #vislabwwy
+    # output[block.write_roi] = to_write[block.write_roi]
     logger.debug("Done")
     return 0
 
@@ -73,7 +77,8 @@ if __name__ == "__main__":
     config = ap.parse_args()
 
     # open dataset
-    dataset = daisy.open_ds(config.in_file, config.in_ds_name)
+    dataset = open_ds(os.path.join(config.in_file, config.in_ds_name)) #vislabwwy
+    # dataset = daisy.open_ds(config.in_file, config.in_ds_name)
 
     # define total region of interest (roi)
     total_roi = dataset.roi
@@ -103,28 +108,39 @@ if __name__ == "__main__":
 
     logger.info(f"Processing data to {config.out_file}/{config.out_ds_name}")
 
-    output_dataset = daisy.prepare_ds(
-        config.out_file,
-        config.out_ds_name,
-        total_roi=output_roi,
+    output_dataset = prepare_ds(
+        os.path.join(config.out_file,config.out_ds_name),
+        shape=dataset.shape,
+        # total_roi=output_roi,
         voxel_size=dataset.voxel_size,
         dtype=dataset.dtype,
-        write_size=block_write_roi.get_shape(),
-    )
+        # write_size=block_write_roi.get_shape(),
+    ) #vislabwwy
+    # output_dataset = daisy.prepare_ds(
+    #     config.out_file,
+    #     config.out_ds_name,
+    #     total_roi=output_roi,
+    #     voxel_size=dataset.voxel_size,
+    #     dtype=dataset.dtype,
+    #     write_size=block_write_roi.get_shape(),
+    # )    
 
     # make task
     task = daisy.Task(
         "GaussianSmoothingTask",
-        total_roi,
-        block_read_roi,
-        block_write_roi,
+        total_roi=total_roi,
+        read_roi=block_read_roi,
+        write_roi=block_write_roi,
+        # total_roi,
+        # block_read_roi,
+        # block_write_roi,
         process_function=lambda b: smooth(
             b, dataset, output_dataset, sigma=config.sigma
         ),
         read_write_conflict=False,
         num_workers=config.num_workers,
         fit="shrink",
-    )
+    ) #vislabwwy
 
     # run task
     ret = daisy.run_blockwise([task])

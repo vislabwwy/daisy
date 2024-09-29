@@ -9,9 +9,10 @@ import pkg_resources
 import logging
 
 import daisy
+from packaging import version #vislabwwy: used for daisy version comparison
 
-daisy_version = float(pkg_resources.get_distribution("daisy").version)
-assert daisy_version >= 1, (
+daisy_version = version.parse(pkg_resources.get_distribution("daisy").version)
+assert daisy_version >= version.parse("1.0"), (
     f"This script was written for daisy v1.0 but current installed version "
     f"is {daisy_version}"
 )
@@ -157,7 +158,7 @@ class BatchTask:
 
         for key in config:
             setattr(self, "%s" % key, config[key])
-
+        
         if self.task_name is None:
             self.task_name = str(self.__class__.__name__)
 
@@ -320,6 +321,7 @@ class BatchTask:
             read_roi=read_roi,
             write_roi=write_roi,
             process_function=self._new_worker,
+            # process_function=self._worker_impl, #vislabwwy: for daisy.run_blockwise(multiprocessing=False)
             read_write_conflict=read_write_conflict,
             fit=fit,
             num_workers=self.num_workers,

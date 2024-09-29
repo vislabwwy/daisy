@@ -9,6 +9,7 @@ import os
 import webbrowser
 import numpy as np
 import zarr
+from funlib.persistence.arrays import Array, open_ds, prepare_ds
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -42,7 +43,8 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-neuroglancer.set_server_bind_address("0.0.0.0")
+neuroglancer.set_server_bind_address("127.0.0.1") #vislabwwy
+# neuroglancer.set_server_bind_address("0.0.0.0") 
 viewer = neuroglancer.Viewer()
 
 
@@ -128,7 +130,8 @@ def open_dataset(f, ds):
         is_multiscale = False
 
     if not is_multiscale:
-        a = daisy.open_ds(f, ds)
+        a = open_ds(os.path.join(f,ds))
+        # a = daisy.open_ds(f, ds)
 
         if slices is not None:
             a = slice_dataset(a, slices)

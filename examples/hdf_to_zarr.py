@@ -8,6 +8,9 @@ import skimage.measure
 import daisy
 from daisy import Coordinate
 from batch_task import BatchTask
+from funlib.persistence.arrays import Array, open_ds, prepare_ds # vislabwwy: daisy.Array/open_ds/prepare_ds have been deprecated
+import h5py #vislabwwy: open_ds doesn't support hdf5 now
+import numcodecs #vislabwwy used for compressor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("HDF2ZarrTask")
@@ -34,19 +37,72 @@ def calculateNearIsotropicDimensions(voxel_size, max_voxel_count):
 
 
 class HDF2ZarrTask(BatchTask):
+    
+    def _read_voxel_size_offset(self, ds, order='C'): #vislabwwy: copy from previous daisy.dataset
+
+        voxel_size = None
+        offset = None
+        dims = None
+
+        if 'resolution' in ds.attrs:
+            voxel_size = tuple(ds.attrs['resolution'])
+            dims = len(voxel_size)
+        elif 'pixelResolution' in ds.attrs:
+            voxel_size = tuple(ds.attrs['pixelResolution']['dimensions'])
+            dims = len(voxel_size)
+        elif 'transform' in ds.attrs:
+            voxel_size = tuple(ds.attrs['transform']['scale'])
+            dims = len(voxel_size)
+
+        if 'offset' in ds.attrs:
+
+            offset = tuple(ds.attrs['offset'])
+
+            if dims is not None:
+                assert dims == len(offset), (
+                    "resolution and offset attributes differ in length")
+            else:
+                dims = len(offset)
+
+        if dims is None:
+            dims = len(ds.shape)
+
+        if voxel_size is None:
+            voxel_size = (1,)*dims
+
+        if offset is None:
+            offset = (0,)*dims
+
+        if order == 'F':
+            offset = offset[::-1]
+            voxel_size = voxel_size[::-1]
+
+        return Coordinate(voxel_size), Coordinate(offset)
 
     def _task_init(self):
 
         logger.info(f"Accessing {self.in_ds_name} in {self.in_file}")
         try:
-            self.in_ds = daisy.open_ds(self.in_file, self.in_ds_name)
+            #vislabwwy: copy form previous daisy.dataset
+            ds = h5py.File(self.in_file, mode='r')[self.in_ds_name]
+
+            voxel_size, offset = self._read_voxel_size_offset(ds, 'C')
+            shape = Coordinate(ds.shape[-len(voxel_size):])
+            # roi = Roi(offset, voxel_size*shape)
+
+            chunk_shape = ds.chunks
+
+            logger.debug("opened H5 dataset %s in %s", self.in_ds_name, self.in_file)
+            self.in_ds=Array(ds,offset,voxel_size)
+            # self.in_ds = daisy.open_ds(self.in_file, self.in_ds_name) 
         except Exception as e:
             logger.info(f"EXCEPTION: {e}")
             exit(1)
 
         voxel_size = self.in_ds.voxel_size
 
-        if self.in_ds.n_channel_dims == 0:
+        if self.in_ds.channel_dims == 0: #vislabwwy
+        # if self.in_ds.n_channel_dims == 0:
             num_channels = None
         elif self.in_ds.n_channel_dims == 1:
             num_channels = self.in_ds.shape[0]
@@ -99,16 +155,16 @@ class HDF2ZarrTask(BatchTask):
 
         delete = self.overwrite == 2
 
-        self.out_ds = daisy.prepare_ds(
-            self.out_file,
-            self.out_ds_name,
-            total_roi=out_ds_roi,
+        self.out_ds = prepare_ds(       #vislabwwy
+            os.path.join(self.out_file, self.out_ds_name), #vislabwwy
+            # total_roi=out_ds_roi, #vislabwwy
+            shape=self.in_ds.shape, #vislabwwy
             voxel_size=voxel_size,
             write_size=self.write_size,
             dtype=self.in_ds.dtype,
             num_channels=num_channels,
             force_exact_write_size=True,
-            compressor={"id": "blosc", "clevel": 3},
+            compressor=numcodecs.Zlib(level=5), #vislabwwy
             delete=delete,
         )
 
@@ -138,6 +194,7 @@ class HDF2ZarrTask(BatchTask):
             read_roi=self.write_roi,
             write_roi=self.write_roi,
             check_fn=lambda b: self.check_fn(b),
+            # read_write_conflict=True, #vislabwwy
         )
 
     def _worker_impl(self, block):
